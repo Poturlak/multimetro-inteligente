@@ -1,9 +1,8 @@
 # -*- coding: utf-8 -*-
 """
-MainWindow - Versão Atualizada com Implementações Aprovadas
-- Toolbar superior com ações de projeto
-- Layout split no estado MARCAÇÃO  
-- Ferramentas de transformação (rotação 90°, espelhar H/V)
+MainWindow - Janela principal do Multímetro Inteligente v1.0
+Integrada com ImageViewer real e todas as funcionalidades.
+VERSÃO COMPLETA - Parte 1/2
 """
 
 from typing import Optional
@@ -11,7 +10,7 @@ from PyQt6.QtWidgets import (
     QMainWindow, QVBoxLayout, QHBoxLayout, QGridLayout,
     QWidget, QStackedWidget, QFrame, QSplitter, QLabel, QMessageBox,
     QFileDialog, QToolBar, QMenuBar, QStatusBar, QPushButton,
-    QButtonGroup, QDoubleSpinBox, QCheckBox, QApplication, QSizePolicy
+    QButtonGroup, QDoubleSpinBox, QCheckBox, QApplication
 )
 from PyQt6.QtCore import Qt, QSettings, QTimer, pyqtSlot
 from PyQt6.QtGui import QPixmap, QIcon, QKeySequence, QCloseEvent, QKeyEvent, QAction
@@ -29,7 +28,13 @@ from src.processing.persistence import ProjectPersistence
 class MainWindow(QMainWindow):
     """
     Janela principal da aplicação Multímetro Inteligente.
-    VERSÃO ATUALIZADA com funcionalidades aprovadas implementadas.
+    
+    Funcionalidades:
+    - Carregamento e visualização de imagens de placas
+    - Marcação de pontos de medição
+    - Integração com multímetro via hardware
+    - Comparação com tolerâncias
+    - Salvamento de projetos .mip
     """
     
     def __init__(self):
@@ -71,9 +76,9 @@ class MainWindow(QMainWindow):
         
         # Componentes principais
         self._create_menus()
-        self._create_toolbars()  # ✅ ATUALIZADO com toolbar superior
-        self._create_central_widget()  # ✅ ATUALIZADO com layout split
-        # Status bar removida conforme discussão
+        self._create_toolbars()
+        self._create_central_widget()
+        self._create_status_bar()
         
         # Configuração final
         self._setup_image_viewer()
@@ -165,19 +170,12 @@ class MainWindow(QMainWindow):
     
     def _create_toolbars(self):
         """Cria toolbars da aplicação."""
-        
-        # ✅ NOVA IMPLEMENTAÇÃO: Toolbar Superior (Arquivo/Projeto)
-        self.project_toolbar = QToolBar("Projeto")
-        self.project_toolbar.setObjectName("ProjectToolbar")
-        self.project_toolbar.setFixedHeight(40)
-        
-        # Botões da toolbar de projeto
-        self.project_toolbar.addAction(self.action_new_project)
-        self.project_toolbar.addSeparator()
-        self.project_toolbar.addAction(self.action_save_project)
-        self.project_toolbar.addAction(self.action_export_image)
-        
-        self.addToolBar(self.project_toolbar)
+        # Toolbar principal (sempre visível com projeto)
+        self.main_toolbar = QToolBar("Principal")
+        self.main_toolbar.setObjectName("MainToolbar")
+        self.main_toolbar.setFixedHeight(40)
+        self.main_toolbar.hide()  # Oculta inicialmente
+        self.addToolBar(self.main_toolbar)
         
         # Toolbar dinâmica (muda conforme estado)
         self.dynamic_toolbar = QToolBar("Dinâmica")
@@ -191,7 +189,7 @@ class MainWindow(QMainWindow):
         
         # Criar toolbars para cada estado
         self._create_toolbar_inicial()      # 0
-        self._create_toolbar_edicao()       # 1 - ✅ ATUALIZADA
+        self._create_toolbar_edicao()       # 1
         self._create_toolbar_marcacao()     # 2
         self._create_toolbar_medicao()      # 3
         self._create_toolbar_comparacao()   # 4
@@ -210,12 +208,12 @@ class MainWindow(QMainWindow):
         self.toolbar_stack.addWidget(widget)
     
     def _create_toolbar_edicao(self):
-        """✅ TOOLBAR EDIÇÃO ATUALIZADA com ferramentas de transformação."""
+        """Toolbar do estado EDIÇÃO."""
         widget = QWidget()
         layout = QHBoxLayout(widget)
         layout.setContentsMargins(10, 5, 10, 5)
         
-        # ✅ ZOOM CONTROLS (mantidos)
+        # Zoom controls
         btn_zoom_in = QPushButton("🔍+")
         btn_zoom_in.setToolTip("Zoom In (Ctrl++)")
         btn_zoom_in.clicked.connect(self._zoom_in)
@@ -231,27 +229,7 @@ class MainWindow(QMainWindow):
         btn_fit.clicked.connect(self._fit_in_view)
         layout.addWidget(btn_fit)
         
-        layout.addWidget(QLabel(" | "))  # Separador visual
-        
-        # ✅ NOVAS FERRAMENTAS DE TRANSFORMAÇÃO
-        btn_rotate_90 = QPushButton("🔄 90°")
-        btn_rotate_90.setToolTip("Rotacionar 90° (horário)")
-        btn_rotate_90.clicked.connect(self._rotate_90)
-        layout.addWidget(btn_rotate_90)
-        
-        btn_flip_h = QPushButton("↔️ H")
-        btn_flip_h.setToolTip("Espelhar Horizontal (H)")
-        btn_flip_h.clicked.connect(self._flip_horizontal)
-        layout.addWidget(btn_flip_h)
-        
-        btn_flip_v = QPushButton("↕️ V") 
-        btn_flip_v.setToolTip("Espelhar Vertical (V)")
-        btn_flip_v.clicked.connect(self._flip_vertical)
-        layout.addWidget(btn_flip_v)
-        
-        layout.addWidget(QLabel(" | "))  # Separador visual
-        
-        # ✅ Botão de conclusão (mantido)
+        # Próximo estado
         btn_next = QPushButton("Marcar Pontos →")
         btn_next.setStyleSheet("background-color: #4CAF50; color: white; padding: 8px 16px; font-weight: bold;")
         btn_next.clicked.connect(lambda: self.state_manager.change_state(AppState.MARCACAO))
@@ -366,9 +344,9 @@ class MainWindow(QMainWindow):
         layout.addWidget(btn_restart)
         
         self.toolbar_stack.addWidget(widget)
-    
+            
     def _create_central_widget(self):
-        """✅ WIDGET CENTRAL ATUALIZADO com layout split no estado MARCAÇÃO."""
+        """Cria widget central com layout principal."""
         central = QWidget()
         self.setCentralWidget(central)
         
@@ -376,7 +354,7 @@ class MainWindow(QMainWindow):
         main_layout = QHBoxLayout(central)
         main_layout.setContentsMargins(5, 5, 5, 5)
         
-        # ✅ SPLITTER PRINCIPAL (70/30 no estado MARCAÇÃO)
+        # Splitter principal
         self.main_splitter = QSplitter(Qt.Orientation.Horizontal)
         main_layout.addWidget(self.main_splitter)
         
@@ -384,13 +362,13 @@ class MainWindow(QMainWindow):
         left_panel = self._create_left_panel()
         self.main_splitter.addWidget(left_panel)
         
-        # ✅ PAINEL DIREITO - tabela de pontos 
+        # Painel direito - tabela de pontos (inicialmente oculto)
         self.right_panel = self._create_right_panel()
-        self.right_panel.hide()  # Inicialmente oculto
+        self.right_panel.hide()
         self.main_splitter.addWidget(self.right_panel)
         
-        # ✅ PROPORÇÃO CONFIGURÁVEL por estado
-        self.main_splitter.setSizes([800, 400])  # 70/30 aproximadamente
+        # Proporção inicial (só painel esquerdo visível)
+        self.main_splitter.setSizes([800, 400])
     
     def _create_left_panel(self):
         """Cria painel esquerdo com área da imagem."""
@@ -502,6 +480,22 @@ class MainWindow(QMainWindow):
         
         return widget
     
+    def _create_status_bar(self):
+        """Cria barra de status."""
+        statusbar = self.statusBar()
+        
+        # Mensagem principal
+        self.status_message = QLabel("Bem-vindo ao Multímetro Inteligente v1.0")
+        statusbar.addWidget(self.status_message)
+        
+        # Info adicional
+        self.status_info = QLabel("")
+        statusbar.addPermanentWidget(self.status_info)
+        
+        # Estado atual
+        self.status_state = QLabel("Estado: Inicial")
+        statusbar.addPermanentWidget(self.status_state)
+    
     def _setup_image_viewer(self):
         """Configura integração com ImageViewer real."""
         # Conecta ao PointManager
@@ -514,7 +508,7 @@ class MainWindow(QMainWindow):
         self.image_viewer.set_point_shape(self.current_shape)
         self.image_viewer.set_point_size(self.current_radius)
         self.image_viewer.set_tolerance(5.0)
-        self.image_viewer.set_edit_mode(False)
+        self.image_viewer.set_edit_mode(False)  # Inicia desabilitado
     
     def _setup_connections(self):
         """Configura conexões de sinais."""
@@ -529,44 +523,6 @@ class MainWindow(QMainWindow):
         # PointsTable
         if hasattr(self.points_table, 'point_selected'):
             self.points_table.point_selected.connect(self._on_point_selected)
-    
-    # ========== ✅ NOVAS FUNÇÕES DE TRANSFORMAÇÃO ==========
-    
-    def _rotate_90(self):
-        """Rotaciona imagem 90° horário."""
-        try:
-            success = self.image_viewer.rotate_image(90)
-            if success:
-                self._mark_unsaved_changes()
-                print("✅ Imagem rotacionada 90°")
-            else:
-                QMessageBox.warning(self, "Aviso", "Não foi possível rotacionar a imagem.")
-        except Exception as e:
-            QMessageBox.critical(self, "Erro", f"Erro ao rotacionar imagem: {str(e)}")
-    
-    def _flip_horizontal(self):
-        """Espelha imagem horizontalmente."""
-        try:
-            success = self.image_viewer.flip_image(horizontal=True)
-            if success:
-                self._mark_unsaved_changes()
-                print("✅ Imagem espelhada horizontalmente")
-            else:
-                QMessageBox.warning(self, "Aviso", "Não foi possível espelhar a imagem.")
-        except Exception as e:
-            QMessageBox.critical(self, "Erro", f"Erro ao espelhar imagem: {str(e)}")
-    
-    def _flip_vertical(self):
-        """Espelha imagem verticalmente."""
-        try:
-            success = self.image_viewer.flip_image(horizontal=False)
-            if success:
-                self._mark_unsaved_changes()
-                print("✅ Imagem espelhada verticalmente")
-            else:
-                QMessageBox.warning(self, "Aviso", "Não foi possível espelhar a imagem.")
-        except Exception as e:
-            QMessageBox.critical(self, "Erro", f"Erro ao espelhar imagem: {str(e)}")
     
     # Métodos de callback do ImageViewer
     def _on_image_click(self, x: int, y: int):
@@ -649,6 +605,7 @@ class MainWindow(QMainWindow):
         """Inicia sequência de medição."""
         self.measurement_status.setText(f"Iniciando medição {measurement_type}...")
         self.point_manager.start_measurement_sequence(measurement_type)
+        # TODO: Implementar comunicação com hardware
     
     def _apply_tolerance(self):
         """Aplica tolerância atual."""
@@ -759,7 +716,8 @@ class MainWindow(QMainWindow):
             self._update_actions()
             self._update_window_title()
             
-            print("✅ Imagem carregada com sucesso")
+            # Status
+            self.status_message.setText("Imagem carregada com sucesso. Você pode começar a editar.")
             
         except Exception as e:
             self._show_error(f"Erro ao carregar imagem:\n{str(e)}")
@@ -782,10 +740,11 @@ class MainWindow(QMainWindow):
                 self._show_error("Não foi possível carregar o projeto.\nVerifique se o arquivo é válido.")
                 return
             
+            # TODO: Implementar carregamento completo do projeto
             self.current_file_path = file_path
             self.has_unsaved_changes = False
             
-            print(f"✅ Projeto carregado: {file_path}")
+            self.status_message.setText(f"Projeto carregado: {file_path}")
             self._update_window_title()
             
         except Exception as e:
@@ -834,8 +793,8 @@ class MainWindow(QMainWindow):
             if ProjectPersistence.save(project_data, file_path):
                 self.current_file_path = file_path
                 self.has_unsaved_changes = False
+                self.status_message.setText(f"Projeto salvo: {file_path}")
                 self._update_window_title()
-                print(f"✅ Projeto salvo: {file_path}")
                 return True
             else:
                 self._show_error("Erro ao salvar projeto.")
@@ -858,32 +817,40 @@ class MainWindow(QMainWindow):
         
         if file_path:
             if self.image_viewer.export_image_with_points(file_path):
-                print(f"✅ Imagem exportada: {file_path}")
+                self.status_message.setText(f"Imagem exportada: {file_path}")
             else:
                 self._show_error("Erro ao exportar imagem.")
     
     # Métodos de estado
     @pyqtSlot(AppState)
     def _update_ui_for_state(self, state: AppState):
-        """✅ ATUALIZADO: Atualiza interface para novo estado com layout split."""
+        """Atualiza interface para novo estado."""
+        # Status bar
+        self.status_state.setText(f"Estado: {state.value.title()}")
+        
         # Toolbar dinâmica
         self.toolbar_stack.setCurrentIndex(state.to_index())
         
-        # ✅ LAYOUT SPLIT: Painel direito (tabela de pontos)
+        # Painel direito (tabela de pontos)
         show_right_panel = state in [AppState.MARCACAO, AppState.MEDICAO, AppState.COMPARACAO]
-        
         if show_right_panel:
             self.right_panel.show()
-            # ✅ PROPORÇÃO 70/30 nos estados com tabela
-            self.main_splitter.setSizes([840, 360])  # 70/30 para 1200px total
         else:
             self.right_panel.hide()
-            # ✅ IMAGEM OCUPA 100% nos outros estados
-            self.main_splitter.setSizes([1200, 0])  # Imagem 100%
         
-        # Controle de tolerância
+        # Controle de tolerância - VERSÃO CORRIGIDA
         if state == AppState.COMPARACAO:
+            # Garantir que o painel pai está visível primeiro
+            if hasattr(self, 'right_panel') and not self.right_panel.isVisible():
+                self.right_panel.show()
+            
+            # Mostrar o widget de tolerância
             self.tolerance_widget.setVisible(True)
+            
+            # Forçar atualização do layout
+            self.tolerance_widget.updateGeometry()
+            if self.tolerance_widget.parent():
+                self.tolerance_widget.parent().updateGeometry()
         else:
             self.tolerance_widget.setVisible(False)
         
@@ -897,8 +864,6 @@ class MainWindow(QMainWindow):
                 self.edit_mode_btn.setChecked(True)
         else:
             self.image_viewer.set_edit_mode(False)
-        
-        print(f"🔄 Estado: {state.value} | Painel direito: {'visível' if show_right_panel else 'oculto'}")
     
     def _update_actions(self):
         """Atualiza estado das ações baseado no contexto."""
@@ -919,6 +884,12 @@ class MainWindow(QMainWindow):
         
         # Atualiza título da tabela
         self.table_title.setText(f"Pontos [{total}]")
+        
+        # Atualiza status bar
+        if total > 0:
+            self.status_info.setText(f"Pontos: {total} | Medidos: {measured}")
+        else:
+            self.status_info.setText("")
     
     def _update_window_title(self):
         """Atualiza título da janela."""
@@ -964,7 +935,6 @@ class MainWindow(QMainWindow):
             <ul>
             <li>Carregamento de imagens de placas</li>
             <li>Marcação visual de pontos de medição</li>
-            <li>Transformações de imagem (rotação, espelhamento)</li>
             <li>Medição automática via multímetro</li>
             <li>Comparação com tolerâncias configuráveis</li>
             <li>Salvamento de projetos (.mip)</li>
@@ -986,15 +956,6 @@ class MainWindow(QMainWindow):
                 # Diminui tamanho do ponto
                 current = self.size_spinbox.value()
                 self.size_spinbox.setValue(max(5, current - 1))
-        
-        # ✅ NOVOS ATALHOS para transformações
-        if self.state_manager.current_state == AppState.EDICAO:
-            if event.key() == Qt.Key.Key_R:
-                self._rotate_90()
-            elif event.key() == Qt.Key.Key_H:
-                self._flip_horizontal()
-            elif event.key() == Qt.Key.Key_V:
-                self._flip_vertical()
         
         super().keyPressEvent(event)
     

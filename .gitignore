@@ -205,3 +205,24 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+
+# Python
+__pycache__/
+*.py[cod]
+venv/
+.env
+
+# VSCode
+.vscode/settings.json
+.vscode/launch.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Projeto específico
+*.mip
+temp_images/
+logs/
+hardware_simulations/
