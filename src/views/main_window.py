@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """
-MainWindow - Versão com Zoom Corrigido
-- ✅ Botões zoom invertidos (- à esquerda, + à direita)
-- Outros comportamentos mantidos
+MainWindow - Versão CORRIGIDA conforme feedback
+- ❌ Removida rotação 180° - apenas 90°
+- Interface limpa e funcional
 """
 
 from typing import Optional
@@ -10,7 +10,8 @@ from PyQt6.QtWidgets import (
     QMainWindow, QVBoxLayout, QHBoxLayout, QGridLayout,
     QWidget, QStackedWidget, QFrame, QSplitter, QLabel, QMessageBox,
     QFileDialog, QToolBar, QMenuBar, QStatusBar, QPushButton,
-    QButtonGroup, QDoubleSpinBox, QCheckBox, QApplication, QSizePolicy
+    QButtonGroup, QDoubleSpinBox, QCheckBox, QApplication, QSizePolicy,
+    QDialog, QSpinBox, QDialogButtonBox
 )
 from PyQt6.QtCore import Qt, QSettings, QTimer, pyqtSlot
 from PyQt6.QtGui import QPixmap, QIcon, QKeySequence, QCloseEvent, QKeyEvent, QAction
@@ -25,10 +26,120 @@ from src.models.point import Point
 from src.processing.persistence import ProjectPersistence
 
 
+class ResizeDialog(QDialog):
+    """Dialog para redimensionar imagem conforme specs2."""
+    
+    def __init__(self, current_width: int, current_height: int, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Redimensionar Imagem")
+        self.setModal(True)
+        self.resize(350, 200)
+        
+        # Valores atuais
+        self.original_width = current_width
+        self.original_height = current_height
+        
+        # Layout principal
+        layout = QVBoxLayout(self)
+        
+        # Info atual
+        info_label = QLabel(f"Tamanho atual: {current_width} x {current_height} pixels")
+        info_label.setStyleSheet("font-weight: bold; margin-bottom: 10px;")
+        layout.addWidget(info_label)
+        
+        # Controles de tamanho
+        size_frame = QFrame()
+        size_layout = QGridLayout(size_frame)
+        
+        # Largura
+        size_layout.addWidget(QLabel("Largura:"), 0, 0)
+        self.width_spin = QSpinBox()
+        self.width_spin.setRange(100, 10000)
+        self.width_spin.setValue(current_width)
+        self.width_spin.valueChanged.connect(self._on_width_changed)
+        size_layout.addWidget(self.width_spin, 0, 1)
+        
+        # Altura
+        size_layout.addWidget(QLabel("Altura:"), 1, 0)
+        self.height_spin = QSpinBox()
+        self.height_spin.setRange(100, 10000)
+        self.height_spin.setValue(current_height)
+        self.height_spin.valueChanged.connect(self._on_height_changed)
+        size_layout.addWidget(self.height_spin, 1, 1)
+        
+        # Manter proporção
+        self.keep_aspect_cb = QCheckBox("Manter proporção")
+        self.keep_aspect_cb.setChecked(True)
+        size_layout.addWidget(self.keep_aspect_cb, 2, 0, 1, 2)
+        
+        layout.addWidget(size_frame)
+        
+        # Percentual
+        percent_frame = QFrame()
+        percent_layout = QHBoxLayout(percent_frame)
+        percent_layout.addWidget(QLabel("Ou por percentual:"))
+        
+        self.percent_spin = QSpinBox()
+        self.percent_spin.setRange(10, 500)
+        self.percent_spin.setValue(100)
+        self.percent_spin.setSuffix("%")
+        self.percent_spin.valueChanged.connect(self._on_percent_changed)
+        percent_layout.addWidget(self.percent_spin)
+        
+        layout.addWidget(percent_frame)
+        
+        # Botões
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+        
+        # Flag para evitar loops
+        self._updating = False
+    
+    def _on_width_changed(self, value):
+        if self._updating:
+            return
+            
+        if self.keep_aspect_cb.isChecked():
+            self._updating = True
+            aspect_ratio = self.original_height / self.original_width
+            new_height = int(value * aspect_ratio)
+            self.height_spin.setValue(new_height)
+            self._updating = False
+    
+    def _on_height_changed(self, value):
+        if self._updating:
+            return
+            
+        if self.keep_aspect_cb.isChecked():
+            self._updating = True
+            aspect_ratio = self.original_width / self.original_height
+            new_width = int(value * aspect_ratio)
+            self.width_spin.setValue(new_width)
+            self._updating = False
+    
+    def _on_percent_changed(self, percent):
+        if self._updating:
+            return
+            
+        self._updating = True
+        factor = percent / 100.0
+        new_width = int(self.original_width * factor)
+        new_height = int(self.original_height * factor)
+        
+        self.width_spin.setValue(new_width)
+        self.height_spin.setValue(new_height)
+        self._updating = False
+    
+    def get_new_size(self):
+        """Retorna nova largura e altura."""
+        return self.width_spin.value(), self.height_spin.value()
+
+
 class MainWindow(QMainWindow):
     """
-    Janela principal da aplicação Multímetro Inteligente.
-    VERSÃO com zoom corrigido.
+    Janela principal CORRIGIDA - apenas rotação 90°.
     """
     
     def __init__(self):
@@ -70,7 +181,7 @@ class MainWindow(QMainWindow):
         
         # Componentes principais
         self._create_menus()
-        self._create_toolbars()  # ✅ CORRIGIDO: zoom invertido
+        self._create_toolbars()
         self._create_central_widget()
         
         # Configuração final
@@ -130,6 +241,21 @@ class MainWindow(QMainWindow):
         # Menu Editar
         editar_menu = menubar.addMenu("&Editar")
         
+        # Desfazer/Refazer
+        self.action_undo = QAction("&Desfazer", self)
+        self.action_undo.setShortcut(QKeySequence.StandardKey.Undo)
+        self.action_undo.setEnabled(False)
+        self.action_undo.triggered.connect(self._undo_transformation)
+        editar_menu.addAction(self.action_undo)
+        
+        self.action_redo = QAction("&Refazer", self)
+        self.action_redo.setShortcut(QKeySequence.StandardKey.Redo)
+        self.action_redo.setEnabled(False)
+        self.action_redo.triggered.connect(self._redo_transformation)
+        editar_menu.addAction(self.action_redo)
+        
+        editar_menu.addSeparator()
+        
         self.action_clear_points = QAction("&Limpar Pontos", self)
         self.action_clear_points.setShortcut(QKeySequence("Ctrl+L"))
         self.action_clear_points.setEnabled(False)
@@ -162,51 +288,40 @@ class MainWindow(QMainWindow):
         ajuda_menu.addAction(self.action_about)
     
     def _create_toolbars(self):
-        """Cria toolbars fixas com design melhorado."""
+        """Cria toolbars com botões corrigidos."""
         
-        # Toolbar superior: Fixa, só aparece após carregar imagem/projeto
+        # Toolbar superior
         self.project_toolbar = QToolBar("Projeto")
         self.project_toolbar.setObjectName("ProjectToolbar")
         self.project_toolbar.setFixedHeight(45)
-        
-        # Toolbar FIXA (não pode ser movida)
         self.project_toolbar.setMovable(False)
         self.project_toolbar.setFloatable(False)
-        
-        # Botões com design melhorado e ícones
         self._create_project_toolbar_buttons()
-        
-        # Inicialmente OCULTA (só aparece após carregar imagem/projeto)
         self.project_toolbar.hide()
-        
         self.addToolBar(self.project_toolbar)
         
-        # Toolbar dinâmica (muda conforme estado)
+        # Toolbar dinâmica
         self.dynamic_toolbar = QToolBar("Dinâmica")
         self.dynamic_toolbar.setObjectName("DynamicToolbar")
         self.dynamic_toolbar.setFixedHeight(45)
-        
-        # Toolbar dinâmica também fixa
         self.dynamic_toolbar.setMovable(False)
         self.dynamic_toolbar.setFloatable(False)
-        
         self.addToolBar(self.dynamic_toolbar)
         
-        # Stack de toolbars para diferentes estados
+        # Stack de toolbars
         self.toolbar_stack = QStackedWidget()
         self.dynamic_toolbar.addWidget(self.toolbar_stack)
         
         # Criar toolbars para cada estado
         self._create_toolbar_inicial()      # 0
-        self._create_toolbar_edicao()       # 1 - ✅ CORRIGIDO: zoom invertido
+        self._create_toolbar_edicao()       # 1 - ✅ CORRIGIDO: apenas 90°
         self._create_toolbar_marcacao()     # 2
         self._create_toolbar_medicao()      # 3
         self._create_toolbar_comparacao()   # 4
     
     def _create_project_toolbar_buttons(self):
-        """Cria botões da toolbar superior com design melhorado."""
+        """Botões da toolbar superior."""
         
-        # BOTÃO NOVO PROJETO com ícone e estilo
         btn_new = QPushButton("📄 Novo Projeto")
         btn_new.setToolTip("Criar novo projeto (Ctrl+N)")
         btn_new.setStyleSheet("""
@@ -231,7 +346,6 @@ class MainWindow(QMainWindow):
         
         self.project_toolbar.addSeparator()
         
-        # BOTÃO SALVAR com ícone e estilo
         btn_save = QPushButton("💾 Salvar")
         btn_save.setToolTip("Salvar projeto (Ctrl+S)")
         btn_save.setStyleSheet("""
@@ -257,11 +371,10 @@ class MainWindow(QMainWindow):
             }
         """)
         btn_save.clicked.connect(self._save_project)
-        btn_save.setEnabled(False)  # Inicialmente desabilitado
-        self.btn_save_toolbar = btn_save  # Referência para controle
+        btn_save.setEnabled(False)
+        self.btn_save_toolbar = btn_save
         self.project_toolbar.addWidget(btn_save)
         
-        # BOTÃO EXPORTAR com ícone e estilo
         btn_export = QPushButton("📷 Exportar")
         btn_export.setToolTip("Exportar imagem com pontos (Ctrl+E)")
         btn_export.setStyleSheet("""
@@ -287,8 +400,8 @@ class MainWindow(QMainWindow):
             }
         """)
         btn_export.clicked.connect(self._export_image)
-        btn_export.setEnabled(False)  # Inicialmente desabilitado
-        self.btn_export_toolbar = btn_export  # Referência para controle
+        btn_export.setEnabled(False)
+        self.btn_export_toolbar = btn_export
         self.project_toolbar.addWidget(btn_export)
     
     def _create_toolbar_inicial(self):
@@ -305,12 +418,63 @@ class MainWindow(QMainWindow):
         self.toolbar_stack.addWidget(widget)
     
     def _create_toolbar_edicao(self):
-        """✅ CORRIGIDO: Toolbar EDIÇÃO com zoom invertido."""
+        """✅ CORRIGIDO: Toolbar EDIÇÃO apenas com rotação 90°."""
         widget = QWidget()
         layout = QHBoxLayout(widget)
         layout.setContentsMargins(10, 5, 10, 5)
         
-        # ✅ CORREÇÃO: Zoom controls INVERTIDOS (- à esquerda, + à direita)
+        # GRUPO 1: Desfazer/Refazer
+        self.btn_undo = QPushButton("↶ Desfazer")
+        self.btn_undo.setToolTip("Desfazer última transformação (Ctrl+Z)")
+        self.btn_undo.setEnabled(False)
+        self.btn_undo.clicked.connect(self._undo_transformation)
+        layout.addWidget(self.btn_undo)
+        
+        self.btn_redo = QPushButton("↷ Refazer")
+        self.btn_redo.setToolTip("Refazer transformação (Ctrl+Shift+Z)")
+        self.btn_redo.setEnabled(False)
+        self.btn_redo.clicked.connect(self._redo_transformation)
+        layout.addWidget(self.btn_redo)
+        
+        layout.addWidget(QLabel(" | "))
+        
+        # ✅ CORRIGIDO: GRUPO 2: Apenas Rotação 90°
+        btn_rotate_90 = QPushButton("🔄 90°")
+        btn_rotate_90.setToolTip("Rotacionar 90° horário")
+        btn_rotate_90.clicked.connect(self._rotate_90)
+        layout.addWidget(btn_rotate_90)
+        
+        # ❌ REMOVIDO: btn_rotate_180
+        
+        layout.addWidget(QLabel(" | "))
+        
+        # GRUPO 3: Espelhamentos
+        btn_flip_h = QPushButton("↔️ H")
+        btn_flip_h.setToolTip("Espelhar Horizontal (H)")
+        btn_flip_h.clicked.connect(self._flip_horizontal)
+        layout.addWidget(btn_flip_h)
+        
+        btn_flip_v = QPushButton("↕️ V")
+        btn_flip_v.setToolTip("Espelhar Vertical (V)")
+        btn_flip_v.clicked.connect(self._flip_vertical)
+        layout.addWidget(btn_flip_v)
+        
+        layout.addWidget(QLabel(" | "))
+        
+        # GRUPO 4: Ajustes
+        btn_crop = QPushButton("✂️ Recortar")
+        btn_crop.setToolTip("Recortar região da imagem")
+        btn_crop.clicked.connect(self._crop_image)
+        layout.addWidget(btn_crop)
+        
+        btn_resize = QPushButton("📏 Redimensionar")
+        btn_resize.setToolTip("Redimensionar imagem")
+        btn_resize.clicked.connect(self._resize_image)
+        layout.addWidget(btn_resize)
+        
+        layout.addWidget(QLabel(" | "))
+        
+        # GRUPO 5: Zoom (- esquerda, + direita)
         btn_zoom_out = QPushButton("🔍-")
         btn_zoom_out.setToolTip("Zoom Out (Ctrl+-)")
         btn_zoom_out.clicked.connect(self._zoom_out)
@@ -328,27 +492,10 @@ class MainWindow(QMainWindow):
         
         layout.addWidget(QLabel(" | "))
         
-        # Ferramentas de transformação
-        btn_rotate_90 = QPushButton("🔄 90°")
-        btn_rotate_90.setToolTip("Rotacionar 90° (R)")
-        btn_rotate_90.clicked.connect(self._rotate_90)
-        layout.addWidget(btn_rotate_90)
-        
-        btn_flip_h = QPushButton("↔️ H")
-        btn_flip_h.setToolTip("Espelhar Horizontal (H)")
-        btn_flip_h.clicked.connect(self._flip_horizontal)
-        layout.addWidget(btn_flip_h)
-        
-        btn_flip_v = QPushButton("↕️ V") 
-        btn_flip_v.setToolTip("Espelhar Vertical (V)")
-        btn_flip_v.clicked.connect(self._flip_vertical)
-        layout.addWidget(btn_flip_v)
-        
-        layout.addWidget(QLabel(" | "))
-        
-        # Botão de conclusão
-        btn_next = QPushButton("Marcar Pontos →")
+        # GRUPO 6: Finalizar
+        btn_next = QPushButton("✅ Concluir Edição")
         btn_next.setStyleSheet("background-color: #4CAF50; color: white; padding: 8px 16px; font-weight: bold;")
+        btn_next.setToolTip("Finalizar edição e ir para marcação de pontos")
         btn_next.clicked.connect(lambda: self.state_manager.change_state(AppState.MARCACAO))
         layout.addWidget(btn_next)
         
@@ -357,7 +504,7 @@ class MainWindow(QMainWindow):
         self.toolbar_stack.addWidget(widget)
     
     def _create_toolbar_marcacao(self):
-        """Toolbar do estado MARCAÇÃO."""
+        """Toolbar do estado MARCAÇÃO (mantida igual)."""
         widget = QWidget()
         layout = QHBoxLayout(widget)
         layout.setContentsMargins(10, 5, 10, 5)
@@ -415,12 +562,10 @@ class MainWindow(QMainWindow):
         layout = QHBoxLayout(widget)
         layout.setContentsMargins(10, 5, 10, 5)
         
-        # Status da medição
         self.measurement_status = QLabel("Aguardando medição...")
         self.measurement_status.setStyleSheet("color: #FF9800; font-weight: bold;")
         layout.addWidget(self.measurement_status)
         
-        # Controles de medição
         btn_start_ref = QPushButton("📐 Medir Referência")
         btn_start_ref.setStyleSheet("background-color: #4CAF50; color: white; padding: 8px 16px;")
         btn_start_ref.clicked.connect(lambda: self._start_measurement("reference"))
@@ -431,7 +576,6 @@ class MainWindow(QMainWindow):
         btn_start_test.clicked.connect(lambda: self._start_measurement("test"))
         layout.addWidget(btn_start_test)
         
-        # Próximo estado
         btn_next = QPushButton("Comparar Resultados →")
         btn_next.setStyleSheet("background-color: #9C27B0; color: white; padding: 8px 16px; font-weight: bold;")
         btn_next.clicked.connect(lambda: self.state_manager.change_state(AppState.COMPARACAO))
@@ -447,14 +591,12 @@ class MainWindow(QMainWindow):
         layout = QHBoxLayout(widget)
         layout.setContentsMargins(10, 5, 10, 5)
         
-        # Estatísticas
         self.comparison_stats = QLabel("Resultados: Analisando...")
         self.comparison_stats.setStyleSheet("font-weight: bold;")
         layout.addWidget(self.comparison_stats)
         
         layout.addStretch()
         
-        # Reiniciar
         btn_restart = QPushButton("🔄 Nova Análise")
         btn_restart.setStyleSheet("background-color: #607D8B; color: white; padding: 8px 16px;")
         btn_restart.clicked.connect(lambda: self.state_manager.change_state(AppState.EDICAO))
@@ -463,7 +605,7 @@ class MainWindow(QMainWindow):
         self.toolbar_stack.addWidget(widget)
     
     def _create_central_widget(self):
-        """Widget central com layout split no estado MARCAÇÃO."""
+        """Widget central (mantido igual)."""
         central = QWidget()
         self.setCentralWidget(central)
         
@@ -501,11 +643,11 @@ class MainWindow(QMainWindow):
         welcome_widget = self._create_welcome_widget()
         self.content_stack.addWidget(welcome_widget)
         
-        # ImageViewer (índice 1) - USANDO ImageViewer REAL
+        # ImageViewer (índice 1) 
         self.image_viewer = ImageViewer()
         self.content_stack.addWidget(self.image_viewer)
         
-        # Info da imagem (inicialmente oculta)
+        # Info da imagem
         self.image_info_label = QLabel()
         self.image_info_label.setStyleSheet("background: #f0f0f0; padding: 5px; border-top: 1px solid #ccc;")
         self.image_info_label.hide()
@@ -598,9 +740,12 @@ class MainWindow(QMainWindow):
         return widget
     
     def _setup_image_viewer(self):
-        """Configura integração com ImageViewer real."""
+        """Configura integração com ImageViewer."""
         # Conecta ao PointManager
         self.image_viewer.set_point_manager(self.point_manager)
+        
+        # Conecta sinais de transformação
+        self.image_viewer.transformation_applied.connect(self._on_transformation_applied)
         
         # Conecta sinal de clique para adicionar pontos
         self.image_viewer.point_click_requested.connect(self._on_image_click)
@@ -628,7 +773,7 @@ class MainWindow(QMainWindow):
     # ========== FUNÇÕES DE TRANSFORMAÇÃO ==========
     
     def _rotate_90(self):
-        """Rotaciona imagem 90° horário."""
+        """✅ MANTIDO: Rotaciona imagem 90° horário."""
         try:
             success = self.image_viewer.rotate_image(90)
             if success:
@@ -638,6 +783,8 @@ class MainWindow(QMainWindow):
                 QMessageBox.warning(self, "Aviso", "Não foi possível rotacionar a imagem.")
         except Exception as e:
             QMessageBox.critical(self, "Erro", f"Erro ao rotacionar imagem: {str(e)}")
+    
+    # ❌ REMOVIDO: _rotate_180()
     
     def _flip_horizontal(self):
         """Espelha imagem horizontalmente."""
@@ -663,6 +810,87 @@ class MainWindow(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, "Erro", f"Erro ao espelhar imagem: {str(e)}")
     
+    def _crop_image(self):
+        """Recorta região da imagem."""
+        try:
+            success = self.image_viewer.start_crop_mode()
+            if success:
+                print("✅ Modo recorte ativado - arraste retângulo na imagem")
+            else:
+                QMessageBox.warning(self, "Aviso", "Não foi possível ativar modo de recorte.")
+        except Exception as e:
+            QMessageBox.critical(self, "Erro", f"Erro ao ativar recorte: {str(e)}")
+    
+    def _resize_image(self):
+        """Redimensiona imagem com dialog."""
+        if not self.image_viewer.image_pixmap:
+            return
+        
+        current_size = self.image_viewer.image_pixmap.size()
+        dialog = ResizeDialog(current_size.width(), current_size.height(), self)
+        
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            new_width, new_height = dialog.get_new_size()
+            
+            try:
+                success = self.image_viewer.resize_image(new_width, new_height)
+                if success:
+                    self._mark_unsaved_changes()
+                    print(f"✅ Imagem redimensionada para {new_width}x{new_height}")
+                else:
+                    QMessageBox.warning(self, "Aviso", "Não foi possível redimensionar a imagem.")
+            except Exception as e:
+                QMessageBox.critical(self, "Erro", f"Erro ao redimensionar imagem: {str(e)}")
+    
+    def _undo_transformation(self):
+        """Desfaz última transformação."""
+        try:
+            success = self.image_viewer.undo_transformation()
+            if success:
+                self._mark_unsaved_changes()
+                self._update_undo_redo_buttons()
+                print("✅ Transformação desfeita")
+            else:
+                print("ℹ️ Nada para desfazer")
+        except Exception as e:
+            QMessageBox.critical(self, "Erro", f"Erro ao desfazer: {str(e)}")
+    
+    def _redo_transformation(self):
+        """Refaz transformação desfeita."""
+        try:
+            success = self.image_viewer.redo_transformation()
+            if success:
+                self._mark_unsaved_changes()
+                self._update_undo_redo_buttons()
+                print("✅ Transformação refeita")
+            else:
+                print("ℹ️ Nada para refazer")
+        except Exception as e:
+            QMessageBox.critical(self, "Erro", f"Erro ao refazer: {str(e)}")
+    
+    def _on_transformation_applied(self, transformation_type: str):
+        """Callback quando transformação é aplicada no ImageViewer."""
+        self._update_undo_redo_buttons()
+        self._mark_unsaved_changes()
+        print(f"✅ Transformação aplicada: {transformation_type}")
+    
+    def _update_undo_redo_buttons(self):
+        """Atualiza estado dos botões desfazer/refazer."""
+        can_undo = self.image_viewer.can_undo()
+        can_redo = self.image_viewer.can_redo()
+        
+        # Botões da toolbar
+        if hasattr(self, 'btn_undo'):
+            self.btn_undo.setEnabled(can_undo)
+        if hasattr(self, 'btn_redo'):
+            self.btn_redo.setEnabled(can_redo)
+        
+        # Ações do menu
+        self.action_undo.setEnabled(can_undo)
+        self.action_redo.setEnabled(can_redo)
+    
+    # ========== MÉTODOS EXISTENTES (mantidos igual) ==========
+    
     # Métodos de callback do ImageViewer
     def _on_image_click(self, x: int, y: int):
         """Callback quando usuário clica na imagem para adicionar ponto."""
@@ -675,13 +903,10 @@ class MainWindow(QMainWindow):
                                                        width=self.current_width, height=self.current_height)
             
             if point_id:
-                # Marca alterações não salvas
                 self._mark_unsaved_changes()
-                
-                # Atualiza info de pontos
                 self._update_points_info()
     
-    # Callbacks do PointManager
+    # Callbacks do PointManager (mantidos)
     def _on_point_added(self, point: Point):
         """Callback quando ponto é adicionado."""
         self._mark_unsaved_changes()
@@ -701,7 +926,7 @@ class MainWindow(QMainWindow):
         """Callback quando ponto é selecionado na tabela."""
         self.image_viewer.highlight_point(point_id)
     
-    # Métodos de ação de toolbar
+    # Métodos de ação de toolbar (mantidos)
     def _set_point_shape(self, shape: str):
         """Define forma dos pontos."""
         self.current_shape = shape
@@ -712,7 +937,7 @@ class MainWindow(QMainWindow):
         self.btn_rectangle.setChecked(shape == "rectangle")
     
     def _update_point_size(self, size: float):
-        """✅ CONECTADO: Atualiza tamanho do ponto no ImageViewer."""
+        """Atualiza tamanho do ponto no ImageViewer."""
         size_int = int(size)
         if self.current_shape == "circle":
             self.current_radius = size_int
@@ -720,7 +945,6 @@ class MainWindow(QMainWindow):
             self.current_width = size_int
             self.current_height = size_int
         
-        # ✅ IMPORTANTE: Atualiza no ImageViewer para refresh do cursor
         self.image_viewer.set_point_size(size_int)
     
     def _toggle_edit_mode(self, enabled: bool):
@@ -771,7 +995,7 @@ class MainWindow(QMainWindow):
         else:
             self.comparison_stats.setText("Nenhum ponto para comparar")
     
-    # Métodos de zoom e visualização
+    # Métodos de zoom e visualização (mantidos)
     def _zoom_in(self):
         """Zoom in na imagem."""
         self.image_viewer.zoom_in()
@@ -856,6 +1080,9 @@ class MainWindow(QMainWindow):
             
             # Mostra toolbar superior após carregar imagem
             self.project_toolbar.show()
+            
+            # Atualiza botões desfazer/refazer
+            self._update_undo_redo_buttons()
             
             # Atualiza ações
             self._update_actions()
@@ -967,7 +1194,7 @@ class MainWindow(QMainWindow):
             else:
                 self._show_error("Erro ao exportar imagem.")
     
-    # Métodos de estado
+    # Métodos de estado (mantidos)
     @pyqtSlot(AppState)
     def _update_ui_for_state(self, state: AppState):
         """Atualiza interface para novo estado com layout split."""
@@ -1002,6 +1229,10 @@ class MainWindow(QMainWindow):
                 self.edit_mode_btn.setChecked(True)
         else:
             self.image_viewer.set_edit_mode(False)
+        
+        # Atualiza botões desfazer/refazer no estado EDIÇÃO
+        if state == AppState.EDICAO:
+            self._update_undo_redo_buttons()
         
         print(f"🔄 Estado: {state.value} | Painel direito: {'visível' if show_right_panel else 'oculto'}")
     
@@ -1074,8 +1305,9 @@ class MainWindow(QMainWindow):
             <p><b>Funcionalidades:</b></p>
             <ul>
             <li>Carregamento de imagens de placas</li>
+            <li>Edição completa com rotação 90°, espelhamento, recorte e redimensionamento</li>
+            <li>Desfazer/Refazer com histórico de transformações</li>
             <li>Marcação visual de pontos de medição</li>
-            <li>Transformações de imagem (rotação, espelhamento)</li>
             <li>Medição automática via multímetro</li>
             <li>Comparação com tolerâncias configuráveis</li>
             <li>Salvamento de projetos (.mip)</li>
@@ -1083,7 +1315,7 @@ class MainWindow(QMainWindow):
             <p><b>Desenvolvido para técnicos em eletrônica</b></p>
             """)
     
-    # Eventos
+    # Eventos (mantidos)
     def keyPressEvent(self, event: QKeyEvent):
         """Trata eventos de teclado."""
         # Atalhos específicos por estado
@@ -1131,7 +1363,7 @@ class MainWindow(QMainWindow):
         self._save_settings()
         event.accept()
     
-    # Configurações
+    # Configurações (mantidas)
     def _save_settings(self):
         """Salva configurações da aplicação."""
         self.settings.setValue("window/geometry", self.saveGeometry())
