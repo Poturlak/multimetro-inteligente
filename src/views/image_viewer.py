@@ -1,16 +1,18 @@
 # -*- coding: utf-8 -*-
 """
-ImageViewer - Versão Atualizada com Transformações de Imagem
-- Rotação 90°
-- Espelhamento Horizontal/Vertical
-- Integração com PointManager
-- Export de imagem com pontos
+ImageViewer - Versão com Preview CORRETO conforme specs2.docx
+- ✅ Preview transparente na scene (não cursor personalizado)
+- ✅ Mesmo tamanho EXATO do ponto que será criado
+- ✅ Segue mouse em tempo real
+- ✅ Vermelho FF0000, alpha 80 (mais transparente)
+- ✅ Sem ID, apenas preview
+- ✅ Desaparece ao sair da área da imagem
 """
 
 from typing import Optional, List, Tuple
 from PyQt6.QtWidgets import QGraphicsView, QGraphicsScene, QGraphicsPixmapItem, QMessageBox
 from PyQt6.QtCore import Qt, pyqtSignal, QPointF, QRectF
-from PyQt6.QtGui import QPixmap, QPainter, QTransform, QColor, QBrush, QWheelEvent, QPaintEvent
+from PyQt6.QtGui import QPixmap, QPainter, QTransform, QColor, QBrush, QWheelEvent, QPaintEvent, QFont, QCursor
 import base64
 from io import BytesIO
 
@@ -18,16 +20,82 @@ from src.controllers.point_manager import PointManager
 from src.models.point import Point
 
 
+class PreviewPointItem:
+    """✅ NOVO: Item de preview que segue mouse conforme specs2"""
+    
+    def __init__(self, scene, shape: str, size: int):
+        self.scene = scene
+        self.shape = shape
+        self.size = size
+        self.graphics_item = None
+        self._create_preview_item()
+    
+    def _create_preview_item(self):
+        """Cria item gráfico de preview na scene"""
+        # ✅ ESPECIFICAÇÃO: Cor Vermelho FF0000, alpha 80 (mais transparente)
+        preview_color = QColor(255, 0, 0, 80)  # Vermelho transparente
+        
+        if self.shape == "circle":
+            from PyQt6.QtWidgets import QGraphicsEllipseItem
+            radius = self.size
+            self.graphics_item = QGraphicsEllipseItem(-radius, -radius, radius * 2, radius * 2)
+        else:
+            from PyQt6.QtWidgets import QGraphicsRectItem
+            half_size = self.size // 2
+            self.graphics_item = QGraphicsRectItem(-half_size, -half_size, self.size, self.size)
+        
+        # Configura aparência
+        self.graphics_item.setBrush(QBrush(preview_color))
+        self.graphics_item.setPen(QColor(255, 0, 0, 120))  # Borda um pouco mais visível
+        self.graphics_item.setZValue(10)  # Fica na frente dos pontos
+        
+        # Adiciona à scene
+        self.scene.addItem(self.graphics_item)
+    
+    def update_position(self, scene_pos: QPointF):
+        """✅ ESPECIFICAÇÃO: Segue cursor em tempo real"""
+        if self.graphics_item:
+            self.graphics_item.setPos(scene_pos)
+    
+    def update_properties(self, shape: str, size: int):
+        """Atualiza propriedades do preview"""
+        if self.shape != shape or self.size != size:
+            self.shape = shape
+            self.size = size
+            self._recreate_preview_item()
+    
+    def _recreate_preview_item(self):
+        """Recria item de preview com novas propriedades"""
+        if self.graphics_item:
+            self.scene.removeItem(self.graphics_item)
+        self._create_preview_item()
+    
+    def show(self):
+        """Mostra preview"""
+        if self.graphics_item:
+            self.graphics_item.setVisible(True)
+    
+    def hide(self):
+        """✅ ESPECIFICAÇÃO: Desaparece ao sair da área da imagem"""
+        if self.graphics_item:
+            self.graphics_item.setVisible(False)
+    
+    def remove(self):
+        """Remove preview da scene"""
+        if self.graphics_item:
+            self.scene.removeItem(self.graphics_item)
+            self.graphics_item = None
+
+
 class ImageViewer(QGraphicsView):
     """
-    Visualizador de imagens com funcionalidades de transformação.
+    ImageViewer com preview CORRETO conforme specs2.docx
     
-    FUNCIONALIDADES IMPLEMENTADAS:
-    - Zoom/Pan
-    - Rotação 90°
-    - Espelhamento H/V
-    - Renderização de pontos
-    - Export com pontos
+    ✅ CORREÇÕES IMPLEMENTADAS:
+    - Preview transparente na scene (não cursor personalizado)
+    - Mesmo tamanho EXATO do ponto que será criado
+    - Segue mouse em tempo real
+    - Vermelho FF0000, alpha 80 conforme specs
     """
     
     # Sinais
@@ -41,29 +109,33 @@ class ImageViewer(QGraphicsView):
         
         # Estado da imagem
         self.image_pixmap: Optional[QPixmap] = None
-        self.original_pixmap: Optional[QPixmap] = None  # ✅ NOVO: Backup do original
+        self.original_pixmap: Optional[QPixmap] = None
         
         # Scene e items
         self.scene = QGraphicsScene()
         self.setScene(self.scene)
         self.pixmap_item: Optional[QGraphicsPixmapItem] = None
         
-        # ✅ NOVO: Sistema de transformações
-        self.current_transform = QTransform()  # Transformação acumulada
-        self.transform_history: List[QTransform] = []  # Para desfazer/refazer
+        # Sistema de transformações
+        self.current_transform = QTransform()
+        self.transform_history: List[QTransform] = []
         
         # Integração com pontos
         self.point_manager: Optional[PointManager] = None
         self.current_shape = "circle"
-        self.current_size = 20
+        self.current_size = 20  # ✅ Tamanho EXATO do ponto na imagem
         self.tolerance = 5.0
         self.edit_mode = False
+        
+        # ✅ NOVO: Preview conforme specs2
+        self.preview_item: Optional[PreviewPointItem] = None
+        self.mouse_over_image = False
         
         # Estado de interação
         self.is_panning = False
         self.last_pan_point = QPointF()
         
-        print("✅ ImageViewer inicializado com transformações")
+        print("✅ ImageViewer com preview conforme specs2.docx")
     
     def _setup_viewer(self):
         """Configuração inicial do viewer."""
@@ -81,33 +153,25 @@ class ImageViewer(QGraphicsView):
         self.min_zoom = 0.1
         self.max_zoom = 4.0
         self.zoom_factor = 1.15
+        
+        # ✅ IMPORTANTE: Habilita tracking do mouse para preview
+        self.setMouseTracking(True)
     
-    # ========== ✅ NOVOS MÉTODOS DE TRANSFORMAÇÃO ==========
+    # ========== MÉTODOS DE TRANSFORMAÇÃO (mantidos) ==========
     
     def rotate_image(self, angle: float) -> bool:
-        """
-        Rotaciona imagem no ângulo especificado.
-        
-        Args:
-            angle: Ângulo em graus (positivo = horário)
-            
-        Returns:
-            True se rotação foi bem-sucedida
-        """
+        """Rotaciona imagem no ângulo especificado."""
         if not self.image_pixmap:
             print("❌ Nenhuma imagem carregada para rotacionar")
             return False
         
         try:
-            # ✅ TRANSFORMAÇÃO: Rotaciona o pixmap atual
             transform = QTransform().rotate(angle)
             rotated_pixmap = self.image_pixmap.transformed(transform, Qt.TransformationMode.SmoothTransformation)
             
-            # Salva transformação no histórico
             self.transform_history.append(self.current_transform)
             self.current_transform = self.current_transform * transform
             
-            # Atualiza imagem
             self._update_pixmap(rotated_pixmap)
             
             print(f"✅ Imagem rotacionada {angle}°")
@@ -118,35 +182,24 @@ class ImageViewer(QGraphicsView):
             return False
     
     def flip_image(self, horizontal: bool) -> bool:
-        """
-        Espelha imagem horizontal ou verticalmente.
-        
-        Args:
-            horizontal: True para espelhar horizontalmente, False para verticalmente
-            
-        Returns:
-            True se espelhamento foi bem-sucedido
-        """
+        """Espelha imagem horizontal ou verticalmente."""
         if not self.image_pixmap:
             print("❌ Nenhuma imagem carregada para espelhar")
             return False
         
         try:
-            # ✅ TRANSFORMAÇÃO: Espelha o pixmap atual
             if horizontal:
-                transform = QTransform().scale(-1, 1)  # Inverte X
+                transform = QTransform().scale(-1, 1)
                 direction = "horizontalmente"
             else:
-                transform = QTransform().scale(1, -1)  # Inverte Y
+                transform = QTransform().scale(1, -1)
                 direction = "verticalmente"
             
             flipped_pixmap = self.image_pixmap.transformed(transform, Qt.TransformationMode.SmoothTransformation)
             
-            # Salva transformação no histórico
             self.transform_history.append(self.current_transform)
             self.current_transform = self.current_transform * transform
             
-            # Atualiza imagem
             self._update_pixmap(flipped_pixmap)
             
             print(f"✅ Imagem espelhada {direction}")
@@ -156,39 +209,8 @@ class ImageViewer(QGraphicsView):
             print(f"❌ Erro ao espelhar imagem: {e}")
             return False
     
-    def reset_transformations(self) -> bool:
-        """
-        Reseta todas as transformações para a imagem original.
-        
-        Returns:
-            True se reset foi bem-sucedido
-        """
-        if not self.original_pixmap:
-            print("❌ Imagem original não disponível")
-            return False
-        
-        try:
-            # Salva estado atual no histórico
-            self.transform_history.append(self.current_transform)
-            
-            # Reseta para original
-            self.current_transform = QTransform()
-            self._update_pixmap(self.original_pixmap.copy())
-            
-            print("✅ Transformações resetadas")
-            return True
-            
-        except Exception as e:
-            print(f"❌ Erro ao resetar transformações: {e}")
-            return False
-    
     def _update_pixmap(self, new_pixmap: QPixmap):
-        """
-        Atualiza pixmap exibido.
-        
-        Args:
-            new_pixmap: Novo pixmap para exibir
-        """
+        """Atualiza pixmap exibido."""
         self.image_pixmap = new_pixmap
         
         if self.pixmap_item:
@@ -196,34 +218,32 @@ class ImageViewer(QGraphicsView):
         else:
             self.pixmap_item = self.scene.addPixmap(new_pixmap)
         
-        # Centraliza imagem na scene
         self._center_image()
         
-        # Redesenha pontos se houver
         if self.point_manager:
             self._render_points()
     
-    # ========== MÉTODOS ORIGINAIS (mantidos) ==========
+    # ========== MÉTODOS ORIGINAIS ==========
     
     def set_image(self, pixmap: QPixmap):
         """Carrega nova imagem."""
         try:
-            # ✅ NOVO: Salva cópia do original
             self.original_pixmap = pixmap.copy()
             self.image_pixmap = pixmap.copy()
             
-            # Reseta transformações
             self.current_transform = QTransform()
             self.transform_history.clear()
             
-            # Limpa scene atual
             self.scene.clear()
             self.pixmap_item = None
             
-            # Adiciona novo pixmap
+            # Remove preview anterior se existir
+            if self.preview_item:
+                self.preview_item.remove()
+                self.preview_item = None
+            
             self.pixmap_item = self.scene.addPixmap(self.image_pixmap)
             
-            # Ajusta view
             self._center_image()
             self.fit_in_view()
             
@@ -240,6 +260,12 @@ class ImageViewer(QGraphicsView):
         self.pixmap_item = None
         self.current_transform = QTransform()
         self.transform_history.clear()
+        
+        # Remove preview
+        if self.preview_item:
+            self.preview_item.remove()
+            self.preview_item = None
+        
         print("✅ Imagem limpa")
     
     def _center_image(self):
@@ -249,7 +275,8 @@ class ImageViewer(QGraphicsView):
             self.scene.setSceneRect(rect)
             self.centerOn(rect.center())
     
-    # Zoom e navegação
+    # ========== ZOOM E NAVEGAÇÃO ==========
+    
     def wheelEvent(self, event: QWheelEvent):
         """Controla zoom com scroll do mouse."""
         if event.angleDelta().y() > 0:
@@ -274,23 +301,25 @@ class ImageViewer(QGraphicsView):
         if self.image_pixmap:
             self.fitInView(self.scene.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
     
-    # Eventos do mouse
+    # ========== ✅ EVENTOS DO MOUSE CORRETOS ==========
+    
     def mousePressEvent(self, event):
-        """Trata clique do mouse."""
+        """Trata clique do mouse com comportamento correto."""
         if event.button() == Qt.MouseButton.LeftButton:
-            # Verifica se deve adicionar ponto
-            if self.edit_mode and self.state_manager and self.state_manager.current_state.value == "marcacao":
-                scene_pos = self.mapToScene(event.pos())
-                if self.pixmap_item and self.pixmap_item.boundingRect().contains(scene_pos):
-                    # Coordenadas na imagem
-                    image_pos = scene_pos - self.pixmap_item.boundingRect().topLeft()
-                    x, y = int(image_pos.x()), int(image_pos.y())
-                    
-                    # Emite sinal para adicionar ponto
-                    self.point_click_requested.emit(x, y)
-                    return
             
-            # Pan mode
+            # Verifica se deve adicionar ponto (modo marcação + edição ativa)
+            if (self.edit_mode and self._is_in_marking_mode() and 
+                self._is_click_on_image(event.pos())):
+                
+                scene_pos = self.mapToScene(event.pos())
+                image_pos = scene_pos - self.pixmap_item.boundingRect().topLeft()
+                x, y = int(image_pos.x()), int(image_pos.y())
+                
+                # Emite sinal para adicionar ponto
+                self.point_click_requested.emit(x, y)
+                return
+            
+            # Pan mode (qualquer outro caso)
             self.is_panning = True
             self.last_pan_point = event.pos()
             self.setCursor(Qt.CursorShape.ClosedHandCursor)
@@ -298,37 +327,91 @@ class ImageViewer(QGraphicsView):
         super().mousePressEvent(event)
     
     def mouseMoveEvent(self, event):
-        """Trata movimento do mouse."""
+        """✅ CORRIGIDO: Preview de ponto conforme specs2"""
+        
+        # ✅ ESPECIFICAÇÃO: Preview aparece ao mover mouse sobre imagem
+        if (self.edit_mode and self._is_in_marking_mode() and 
+            self._is_mouse_over_image(event.pos())):
+            
+            # Cria preview se não existir
+            if not self.preview_item:
+                self.preview_item = PreviewPointItem(self.scene, self.current_shape, self.current_size)
+            
+            # ✅ ESPECIFICAÇÃO: Segue cursor em tempo real
+            scene_pos = self.mapToScene(event.pos())
+            self.preview_item.update_position(scene_pos)
+            self.preview_item.show()
+            self.mouse_over_image = True
+            
+        else:
+            # ✅ ESPECIFICAÇÃO: Desaparece ao sair da área da imagem
+            if self.preview_item and self.mouse_over_image:
+                self.preview_item.hide()
+                self.mouse_over_image = False
+        
+        # Pan normal
         if self.is_panning and event.buttons() == Qt.MouseButton.LeftButton:
-            # Pan da imagem
             delta = event.pos() - self.last_pan_point
             self.last_pan_point = event.pos()
             
-            # Move scrollbars
             h_bar = self.horizontalScrollBar()
             v_bar = self.verticalScrollBar()
             h_bar.setValue(h_bar.value() - delta.x())
             v_bar.setValue(v_bar.value() - delta.y())
-            
+        
         super().mouseMoveEvent(event)
     
     def mouseReleaseEvent(self, event):
         """Trata soltar do mouse."""
         if event.button() == Qt.MouseButton.LeftButton:
             self.is_panning = False
-            self.setCursor(Qt.CursorShape.OpenHandCursor)
+            self._update_cursor_for_mode()
         
         super().mouseReleaseEvent(event)
     
     def enterEvent(self, event):
-        """Cursor ao entrar."""
-        self.setCursor(Qt.CursorShape.OpenHandCursor)
+        """Cursor ao entrar na área."""
+        self._update_cursor_for_mode()
         super().enterEvent(event)
     
     def leaveEvent(self, event):
-        """Cursor ao sair."""
+        """✅ ESPECIFICAÇÃO: Desaparece ao sair da área da imagem"""
         self.setCursor(Qt.CursorShape.ArrowCursor)
+        
+        # Esconde preview ao sair do widget
+        if self.preview_item:
+            self.preview_item.hide()
+            self.mouse_over_image = False
+        
         super().leaveEvent(event)
+    
+    # ========== MÉTODOS AUXILIARES ==========
+    
+    def _is_in_marking_mode(self) -> bool:
+        """Verifica se está em modo marcação."""
+        # Hack temporário - em produção, receber via parâmetro
+        return hasattr(self, '_marking_mode') and self._marking_mode
+    
+    def _is_click_on_image(self, pos) -> bool:
+        """Verifica se clique foi na área da imagem."""
+        if not self.pixmap_item:
+            return False
+        
+        scene_pos = self.mapToScene(pos)
+        return self.pixmap_item.boundingRect().contains(scene_pos)
+    
+    def _is_mouse_over_image(self, pos) -> bool:
+        """Verifica se mouse está sobre a imagem."""
+        return self._is_click_on_image(pos)
+    
+    def _update_cursor_for_mode(self):
+        """Atualiza cursor baseado no modo atual."""
+        if self.edit_mode and self._is_in_marking_mode():
+            # Cursor padrão no modo marcação (preview é na scene)
+            self.setCursor(Qt.CursorShape.CrossCursor)
+        else:
+            # Cursor normal (mão aberta para pan)
+            self.setCursor(Qt.CursorShape.OpenHandCursor)
     
     # ========== INTEGRAÇÃO COM PONTOS ==========
     
@@ -336,19 +419,28 @@ class ImageViewer(QGraphicsView):
         """Define gerenciador de pontos."""
         self.point_manager = point_manager
         if point_manager:
-            # Conecta sinais
             point_manager.point_added.connect(self._on_point_added)
             point_manager.point_removed.connect(self._on_point_removed)
             point_manager.points_cleared.connect(self._on_points_cleared)
             print("✅ PointManager conectado ao ImageViewer")
     
     def set_point_shape(self, shape: str):
-        """Define forma dos pontos."""
+        """✅ ESPECIFICAÇÃO: Atualiza forma do preview"""
         self.current_shape = shape
+        
+        # ✅ IMPORTANTE: Atualiza preview se existir
+        if self.preview_item:
+            self.preview_item.update_properties(self.current_shape, self.current_size)
     
     def set_point_size(self, size: int):
-        """Define tamanho dos pontos."""
+        """✅ ESPECIFICAÇÃO: Atualiza tamanho do preview (mesmo do ponto)"""
         self.current_size = size
+        
+        # ✅ IMPORTANTE: Atualiza preview se existir
+        if self.preview_item:
+            self.preview_item.update_properties(self.current_shape, self.current_size)
+        
+        print(f"✅ Tamanho do ponto atualizado: {size}px (preview também)")
     
     def set_tolerance(self, tolerance: float):
         """Define tolerância."""
@@ -359,14 +451,28 @@ class ImageViewer(QGraphicsView):
         """Define modo de edição."""
         self.edit_mode = enabled
         
-        # Adiciona referência ao state_manager quando necessário
-        if not hasattr(self, 'state_manager'):
-            # Hack temporário - em implementação futura, passar via construtor
-            from src.controllers.state_manager import AppState
-            self.state_manager = type('MockStateManager', (), {'current_state': AppState.MARCACAO})()
+        # Hack temporário: Define se está em modo marcação
+        self._marking_mode = enabled
+        
+        # ✅ CONTROLE DO PREVIEW
+        if enabled:
+            # Cria preview se não existir
+            if not self.preview_item:
+                self.preview_item = PreviewPointItem(self.scene, self.current_shape, self.current_size)
+                self.preview_item.hide()  # Inicialmente oculto
+        else:
+            # Remove preview ao sair do modo marcação
+            if self.preview_item:
+                self.preview_item.remove()
+                self.preview_item = None
+        
+        # Atualiza cursor
+        self._update_cursor_for_mode()
+        
+        print(f"✅ Modo edição: {'ativado' if enabled else 'desativado'}")
     
     def _render_points(self):
-        """Renderiza pontos na imagem."""
+        """Renderiza pontos no estilo original (vermelhos com ID)."""
         if not self.point_manager or not self.pixmap_item:
             return
         
@@ -377,23 +483,21 @@ class ImageViewer(QGraphicsView):
         
         # Adiciona todos os pontos
         for point in self.point_manager.get_all_points():
-            self._add_point_to_scene(point)
+            self._add_point_to_scene_original_style(point)
     
-    def _add_point_to_scene(self, point: Point):
-        """Adiciona ponto individual à scene."""
-        # Determina cor baseada no status
-        if point.is_measured():
-            if point.is_divergent(self.tolerance):
-                color = QColor(255, 0, 0, 128)  # Vermelho transparente
-            else:
-                color = QColor(0, 255, 0, 128)  # Verde transparente
-        else:
-            color = QColor(0, 0, 255, 128)  # Azul transparente
+    def _add_point_to_scene_original_style(self, point: Point):
+        """Adiciona ponto com estilo ORIGINAL (vermelho com ID)."""
+        if not self.pixmap_item:
+            return
         
-        # Posição na scene (relativa ao pixmap)
-        if self.pixmap_item:
+        try:
+            # Posição na scene (relativa ao pixmap)
             scene_x = self.pixmap_item.boundingRect().x() + point.x
             scene_y = self.pixmap_item.boundingRect().y() + point.y
+            
+            # Cor vermelha (estilo original)
+            point_color = QColor(255, 0, 0, 200)  # Vermelho opaco
+            text_color = QColor(255, 255, 255)    # Texto branco
             
             # Cria item gráfico baseado na forma
             if point.shape == "circle":
@@ -406,13 +510,41 @@ class ImageViewer(QGraphicsView):
                 height = point.height or 20
                 item = QGraphicsRectItem(scene_x - width/2, scene_y - height/2, width, height)
             
-            # Configura aparência
-            item.setBrush(QBrush(color))
-            item.setPen(Qt.GlobalColor.black)
-            item.is_point_item = True  # Marca para identificação
+            # Configura aparência (estilo original)
+            item.setBrush(QBrush(point_color))
+            item.setPen(QColor(150, 0, 0))  # Borda mais escura
+            item.is_point_item = True
             item.point_id = point.id
+            item.setZValue(1)  # Pontos ficam atrás do preview
             
             self.scene.addItem(item)
+            
+            # Adiciona texto com ID (estilo original)
+            from PyQt6.QtWidgets import QGraphicsTextItem
+            text_item = QGraphicsTextItem(str(point.id))
+            text_item.setDefaultTextColor(text_color)
+            
+            # Font bold para melhor visibilidade
+            font = QFont()
+            font.setBold(True)
+            font.setPointSize(10)
+            text_item.setFont(font)
+            
+            # Centraliza texto no ponto
+            text_rect = text_item.boundingRect()
+            text_x = scene_x - text_rect.width() / 2
+            text_y = scene_y - text_rect.height() / 2
+            text_item.setPos(text_x, text_y)
+            
+            # Marca como item de ponto para identificação
+            text_item.is_point_item = True
+            text_item.point_id = point.id
+            text_item.setZValue(2)  # Texto fica na frente dos pontos
+            
+            self.scene.addItem(text_item)
+            
+        except Exception as e:
+            print(f"❌ Erro ao adicionar ponto #{point.id} à scene: {e}")
     
     def highlight_point(self, point_id: int):
         """Destaca ponto específico."""
@@ -422,32 +554,27 @@ class ImageViewer(QGraphicsView):
     # Callbacks do PointManager
     def _on_point_added(self, point: Point):
         """Callback quando ponto é adicionado."""
-        self._add_point_to_scene(point)
+        self._add_point_to_scene_original_style(point)
     
     def _on_point_removed(self, point_id: int):
         """Callback quando ponto é removido."""
         # Remove da scene
+        items_to_remove = []
         for item in self.scene.items():
             if hasattr(item, 'point_id') and item.point_id == point_id:
-                self.scene.removeItem(item)
-                break
+                items_to_remove.append(item)
+        
+        for item in items_to_remove:
+            self.scene.removeItem(item)
     
     def _on_points_cleared(self):
         """Callback quando pontos são limpos."""
         self._render_points()
     
-    # ========== ✅ NOVO: EXPORT COM PONTOS ==========
+    # ========== EXPORT COM PONTOS ==========
     
     def export_image_with_points(self, file_path: str) -> bool:
-        """
-        Exporta imagem atual com pontos renderizados.
-        
-        Args:
-            file_path: Caminho do arquivo de destino
-            
-        Returns:
-            True se export foi bem-sucedido
-        """
+        """Exporta imagem atual com pontos renderizados."""
         if not self.image_pixmap:
             print("❌ Nenhuma imagem para exportar")
             return False
@@ -456,23 +583,18 @@ class ImageViewer(QGraphicsView):
             # Cria cópia da imagem atual
             export_pixmap = self.image_pixmap.copy()
             
-            # Renderiza pontos na imagem
+            # Renderiza pontos na imagem (estilo original)
             if self.point_manager:
                 painter = QPainter(export_pixmap)
                 painter.setRenderHint(QPainter.RenderHint.Antialiasing)
                 
                 for point in self.point_manager.get_all_points():
-                    # Determina cor
-                    if point.is_measured():
-                        if point.is_divergent(self.tolerance):
-                            color = QColor(255, 0, 0, 180)  # Vermelho
-                        else:
-                            color = QColor(0, 255, 0, 180)  # Verde
-                    else:
-                        color = QColor(0, 0, 255, 180)  # Azul
+                    # Cor vermelha (estilo original)
+                    point_color = QColor(255, 0, 0, 200)
+                    text_color = QColor(255, 255, 255)
                     
-                    painter.setBrush(QBrush(color))
-                    painter.setPen(Qt.GlobalColor.black)
+                    painter.setBrush(QBrush(point_color))
+                    painter.setPen(QColor(150, 0, 0))
                     
                     # Desenha forma
                     if point.shape == "circle":
@@ -482,6 +604,14 @@ class ImageViewer(QGraphicsView):
                         width = point.width or 20
                         height = point.height or 20
                         painter.drawRect(point.x - width//2, point.y - height//2, width, height)
+                    
+                    # Desenha ID do ponto
+                    painter.setPen(text_color)
+                    font = QFont()
+                    font.setBold(True)
+                    font.setPointSize(10)
+                    painter.setFont(font)
+                    painter.drawText(point.x - 5, point.y + 5, str(point.id))
                 
                 painter.end()
             
@@ -500,23 +630,14 @@ class ImageViewer(QGraphicsView):
             return False
     
     def get_image_data(self) -> Optional[str]:
-        """
-        Obtém dados da imagem atual como string base64.
-        
-        Returns:
-            String base64 da imagem ou None se erro
-        """
+        """Obtém dados da imagem atual como string base64."""
         if not self.image_pixmap:
             return None
         
         try:
-            # Converte pixmap para bytes
             byte_array = BytesIO()
             self.image_pixmap.save(byte_array, "PNG")
-            
-            # Codifica em base64
             image_data = base64.b64encode(byte_array.getvalue()).decode()
-            
             return image_data
             
         except Exception as e:

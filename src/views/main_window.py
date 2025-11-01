@@ -1,9 +1,8 @@
 # -*- coding: utf-8 -*-
 """
-MainWindow - Versão Atualizada com Implementações Aprovadas
-- Toolbar superior com ações de projeto
-- Layout split no estado MARCAÇÃO  
-- Ferramentas de transformação (rotação 90°, espelhar H/V)
+MainWindow - Versão com Zoom Corrigido
+- ✅ Botões zoom invertidos (- à esquerda, + à direita)
+- Outros comportamentos mantidos
 """
 
 from typing import Optional
@@ -29,7 +28,7 @@ from src.processing.persistence import ProjectPersistence
 class MainWindow(QMainWindow):
     """
     Janela principal da aplicação Multímetro Inteligente.
-    VERSÃO ATUALIZADA com funcionalidades aprovadas implementadas.
+    VERSÃO com zoom corrigido.
     """
     
     def __init__(self):
@@ -71,9 +70,8 @@ class MainWindow(QMainWindow):
         
         # Componentes principais
         self._create_menus()
-        self._create_toolbars()  # ✅ ATUALIZADO com toolbar superior
-        self._create_central_widget()  # ✅ ATUALIZADO com layout split
-        # Status bar removida conforme discussão
+        self._create_toolbars()  # ✅ CORRIGIDO: zoom invertido
+        self._create_central_widget()
         
         # Configuração final
         self._setup_image_viewer()
@@ -164,25 +162,34 @@ class MainWindow(QMainWindow):
         ajuda_menu.addAction(self.action_about)
     
     def _create_toolbars(self):
-        """Cria toolbars da aplicação."""
+        """Cria toolbars fixas com design melhorado."""
         
-        # ✅ NOVA IMPLEMENTAÇÃO: Toolbar Superior (Arquivo/Projeto)
+        # Toolbar superior: Fixa, só aparece após carregar imagem/projeto
         self.project_toolbar = QToolBar("Projeto")
         self.project_toolbar.setObjectName("ProjectToolbar")
-        self.project_toolbar.setFixedHeight(40)
+        self.project_toolbar.setFixedHeight(45)
         
-        # Botões da toolbar de projeto
-        self.project_toolbar.addAction(self.action_new_project)
-        self.project_toolbar.addSeparator()
-        self.project_toolbar.addAction(self.action_save_project)
-        self.project_toolbar.addAction(self.action_export_image)
+        # Toolbar FIXA (não pode ser movida)
+        self.project_toolbar.setMovable(False)
+        self.project_toolbar.setFloatable(False)
+        
+        # Botões com design melhorado e ícones
+        self._create_project_toolbar_buttons()
+        
+        # Inicialmente OCULTA (só aparece após carregar imagem/projeto)
+        self.project_toolbar.hide()
         
         self.addToolBar(self.project_toolbar)
         
         # Toolbar dinâmica (muda conforme estado)
         self.dynamic_toolbar = QToolBar("Dinâmica")
         self.dynamic_toolbar.setObjectName("DynamicToolbar")
-        self.dynamic_toolbar.setFixedHeight(42)
+        self.dynamic_toolbar.setFixedHeight(45)
+        
+        # Toolbar dinâmica também fixa
+        self.dynamic_toolbar.setMovable(False)
+        self.dynamic_toolbar.setFloatable(False)
+        
         self.addToolBar(self.dynamic_toolbar)
         
         # Stack de toolbars para diferentes estados
@@ -191,10 +198,98 @@ class MainWindow(QMainWindow):
         
         # Criar toolbars para cada estado
         self._create_toolbar_inicial()      # 0
-        self._create_toolbar_edicao()       # 1 - ✅ ATUALIZADA
+        self._create_toolbar_edicao()       # 1 - ✅ CORRIGIDO: zoom invertido
         self._create_toolbar_marcacao()     # 2
         self._create_toolbar_medicao()      # 3
         self._create_toolbar_comparacao()   # 4
+    
+    def _create_project_toolbar_buttons(self):
+        """Cria botões da toolbar superior com design melhorado."""
+        
+        # BOTÃO NOVO PROJETO com ícone e estilo
+        btn_new = QPushButton("📄 Novo Projeto")
+        btn_new.setToolTip("Criar novo projeto (Ctrl+N)")
+        btn_new.setStyleSheet("""
+            QPushButton {
+                background-color: #f0f0f0;
+                border: 1px solid #ccc;
+                border-radius: 4px;
+                padding: 8px 16px;
+                font-size: 14px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #e6e6e6;
+                border-color: #999;
+            }
+            QPushButton:pressed {
+                background-color: #ddd;
+            }
+        """)
+        btn_new.clicked.connect(self._new_project)
+        self.project_toolbar.addWidget(btn_new)
+        
+        self.project_toolbar.addSeparator()
+        
+        # BOTÃO SALVAR com ícone e estilo
+        btn_save = QPushButton("💾 Salvar")
+        btn_save.setToolTip("Salvar projeto (Ctrl+S)")
+        btn_save.setStyleSheet("""
+            QPushButton {
+                background-color: #4CAF50;
+                color: white;
+                border: 1px solid #45a049;
+                border-radius: 4px;
+                padding: 8px 16px;
+                font-size: 14px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #45a049;
+            }
+            QPushButton:pressed {
+                background-color: #3d8b40;
+            }
+            QPushButton:disabled {
+                background-color: #cccccc;
+                color: #666666;
+                border-color: #999999;
+            }
+        """)
+        btn_save.clicked.connect(self._save_project)
+        btn_save.setEnabled(False)  # Inicialmente desabilitado
+        self.btn_save_toolbar = btn_save  # Referência para controle
+        self.project_toolbar.addWidget(btn_save)
+        
+        # BOTÃO EXPORTAR com ícone e estilo
+        btn_export = QPushButton("📷 Exportar")
+        btn_export.setToolTip("Exportar imagem com pontos (Ctrl+E)")
+        btn_export.setStyleSheet("""
+            QPushButton {
+                background-color: #2196F3;
+                color: white;
+                border: 1px solid #1976D2;
+                border-radius: 4px;
+                padding: 8px 16px;
+                font-size: 14px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #1976D2;
+            }
+            QPushButton:pressed {
+                background-color: #1565C0;
+            }
+            QPushButton:disabled {
+                background-color: #cccccc;
+                color: #666666;
+                border-color: #999999;
+            }
+        """)
+        btn_export.clicked.connect(self._export_image)
+        btn_export.setEnabled(False)  # Inicialmente desabilitado
+        self.btn_export_toolbar = btn_export  # Referência para controle
+        self.project_toolbar.addWidget(btn_export)
     
     def _create_toolbar_inicial(self):
         """Toolbar do estado INICIAL."""
@@ -210,32 +305,32 @@ class MainWindow(QMainWindow):
         self.toolbar_stack.addWidget(widget)
     
     def _create_toolbar_edicao(self):
-        """✅ TOOLBAR EDIÇÃO ATUALIZADA com ferramentas de transformação."""
+        """✅ CORRIGIDO: Toolbar EDIÇÃO com zoom invertido."""
         widget = QWidget()
         layout = QHBoxLayout(widget)
         layout.setContentsMargins(10, 5, 10, 5)
         
-        # ✅ ZOOM CONTROLS (mantidos)
-        btn_zoom_in = QPushButton("🔍+")
-        btn_zoom_in.setToolTip("Zoom In (Ctrl++)")
-        btn_zoom_in.clicked.connect(self._zoom_in)
-        layout.addWidget(btn_zoom_in)
-        
+        # ✅ CORREÇÃO: Zoom controls INVERTIDOS (- à esquerda, + à direita)
         btn_zoom_out = QPushButton("🔍-")
         btn_zoom_out.setToolTip("Zoom Out (Ctrl+-)")
         btn_zoom_out.clicked.connect(self._zoom_out)
         layout.addWidget(btn_zoom_out)
+        
+        btn_zoom_in = QPushButton("🔍+")
+        btn_zoom_in.setToolTip("Zoom In (Ctrl++)")
+        btn_zoom_in.clicked.connect(self._zoom_in)
+        layout.addWidget(btn_zoom_in)
         
         btn_fit = QPushButton("📏")
         btn_fit.setToolTip("Ajustar à Janela (Ctrl+0)")
         btn_fit.clicked.connect(self._fit_in_view)
         layout.addWidget(btn_fit)
         
-        layout.addWidget(QLabel(" | "))  # Separador visual
+        layout.addWidget(QLabel(" | "))
         
-        # ✅ NOVAS FERRAMENTAS DE TRANSFORMAÇÃO
+        # Ferramentas de transformação
         btn_rotate_90 = QPushButton("🔄 90°")
-        btn_rotate_90.setToolTip("Rotacionar 90° (horário)")
+        btn_rotate_90.setToolTip("Rotacionar 90° (R)")
         btn_rotate_90.clicked.connect(self._rotate_90)
         layout.addWidget(btn_rotate_90)
         
@@ -249,9 +344,9 @@ class MainWindow(QMainWindow):
         btn_flip_v.clicked.connect(self._flip_vertical)
         layout.addWidget(btn_flip_v)
         
-        layout.addWidget(QLabel(" | "))  # Separador visual
+        layout.addWidget(QLabel(" | "))
         
-        # ✅ Botão de conclusão (mantido)
+        # Botão de conclusão
         btn_next = QPushButton("Marcar Pontos →")
         btn_next.setStyleSheet("background-color: #4CAF50; color: white; padding: 8px 16px; font-weight: bold;")
         btn_next.clicked.connect(lambda: self.state_manager.change_state(AppState.MARCACAO))
@@ -368,7 +463,7 @@ class MainWindow(QMainWindow):
         self.toolbar_stack.addWidget(widget)
     
     def _create_central_widget(self):
-        """✅ WIDGET CENTRAL ATUALIZADO com layout split no estado MARCAÇÃO."""
+        """Widget central com layout split no estado MARCAÇÃO."""
         central = QWidget()
         self.setCentralWidget(central)
         
@@ -376,7 +471,7 @@ class MainWindow(QMainWindow):
         main_layout = QHBoxLayout(central)
         main_layout.setContentsMargins(5, 5, 5, 5)
         
-        # ✅ SPLITTER PRINCIPAL (70/30 no estado MARCAÇÃO)
+        # Splitter principal (70/30 no estado MARCAÇÃO)
         self.main_splitter = QSplitter(Qt.Orientation.Horizontal)
         main_layout.addWidget(self.main_splitter)
         
@@ -384,13 +479,13 @@ class MainWindow(QMainWindow):
         left_panel = self._create_left_panel()
         self.main_splitter.addWidget(left_panel)
         
-        # ✅ PAINEL DIREITO - tabela de pontos 
+        # Painel direito - tabela de pontos 
         self.right_panel = self._create_right_panel()
         self.right_panel.hide()  # Inicialmente oculto
         self.main_splitter.addWidget(self.right_panel)
         
-        # ✅ PROPORÇÃO CONFIGURÁVEL por estado
-        self.main_splitter.setSizes([800, 400])  # 70/30 aproximadamente
+        # Proporção configurável por estado
+        self.main_splitter.setSizes([800, 400])
     
     def _create_left_panel(self):
         """Cria painel esquerdo com área da imagem."""
@@ -530,7 +625,7 @@ class MainWindow(QMainWindow):
         if hasattr(self.points_table, 'point_selected'):
             self.points_table.point_selected.connect(self._on_point_selected)
     
-    # ========== ✅ NOVAS FUNÇÕES DE TRANSFORMAÇÃO ==========
+    # ========== FUNÇÕES DE TRANSFORMAÇÃO ==========
     
     def _rotate_90(self):
         """Rotaciona imagem 90° horário."""
@@ -617,7 +712,7 @@ class MainWindow(QMainWindow):
         self.btn_rectangle.setChecked(shape == "rectangle")
     
     def _update_point_size(self, size: float):
-        """Atualiza tamanho do ponto."""
+        """✅ CONECTADO: Atualiza tamanho do ponto no ImageViewer."""
         size_int = int(size)
         if self.current_shape == "circle":
             self.current_radius = size_int
@@ -625,6 +720,7 @@ class MainWindow(QMainWindow):
             self.current_width = size_int
             self.current_height = size_int
         
+        # ✅ IMPORTANTE: Atualiza no ImageViewer para refresh do cursor
         self.image_viewer.set_point_size(size_int)
     
     def _toggle_edit_mode(self, enabled: bool):
@@ -688,7 +784,7 @@ class MainWindow(QMainWindow):
         """Ajusta imagem na view."""
         self.image_viewer.fit_in_view()
     
-    # Métodos de arquivo
+    # Métodos de arquivo (mantidos como estavam)
     def _new_project(self):
         """Cria novo projeto."""
         if self.has_unsaved_changes:
@@ -717,6 +813,9 @@ class MainWindow(QMainWindow):
         # Volta ao estado inicial
         self.state_manager.change_state(AppState.INICIAL)
         self._update_window_title()
+        
+        # Oculta toolbar superior quando volta ao inicial
+        self.project_toolbar.hide()
     
     def _open_image(self):
         """Abre dialog para selecionar imagem."""
@@ -755,6 +854,9 @@ class MainWindow(QMainWindow):
             self.image_info_label.setText(f"Imagem: {pixmap.width()}x{pixmap.height()}px - {file_path}")
             self.image_info_label.show()
             
+            # Mostra toolbar superior após carregar imagem
+            self.project_toolbar.show()
+            
             # Atualiza ações
             self._update_actions()
             self._update_window_title()
@@ -784,6 +886,9 @@ class MainWindow(QMainWindow):
             
             self.current_file_path = file_path
             self.has_unsaved_changes = False
+            
+            # Mostra toolbar superior após carregar projeto
+            self.project_toolbar.show()
             
             print(f"✅ Projeto carregado: {file_path}")
             self._update_window_title()
@@ -865,21 +970,21 @@ class MainWindow(QMainWindow):
     # Métodos de estado
     @pyqtSlot(AppState)
     def _update_ui_for_state(self, state: AppState):
-        """✅ ATUALIZADO: Atualiza interface para novo estado com layout split."""
+        """Atualiza interface para novo estado com layout split."""
         # Toolbar dinâmica
         self.toolbar_stack.setCurrentIndex(state.to_index())
         
-        # ✅ LAYOUT SPLIT: Painel direito (tabela de pontos)
+        # Layout split: Painel direito (tabela de pontos)
         show_right_panel = state in [AppState.MARCACAO, AppState.MEDICAO, AppState.COMPARACAO]
         
         if show_right_panel:
             self.right_panel.show()
-            # ✅ PROPORÇÃO 70/30 nos estados com tabela
-            self.main_splitter.setSizes([840, 360])  # 70/30 para 1200px total
+            # Proporção 70/30 nos estados com tabela
+            self.main_splitter.setSizes([840, 360])
         else:
             self.right_panel.hide()
-            # ✅ IMAGEM OCUPA 100% nos outros estados
-            self.main_splitter.setSizes([1200, 0])  # Imagem 100%
+            # Imagem ocupa 100% nos outros estados
+            self.main_splitter.setSizes([1200, 0])
         
         # Controle de tolerância
         if state == AppState.COMPARACAO:
@@ -901,16 +1006,22 @@ class MainWindow(QMainWindow):
         print(f"🔄 Estado: {state.value} | Painel direito: {'visível' if show_right_panel else 'oculto'}")
     
     def _update_actions(self):
-        """Atualiza estado das ações baseado no contexto."""
+        """Atualiza estado das ações e toolbar superior."""
         has_project = self.project is not None
         has_image = self.image_viewer.image_pixmap is not None
         has_points = self.point_manager.get_point_count() > 0
         
-        # Ações de arquivo
+        # Ações de menu
         self.action_save_project.setEnabled(has_project)
         self.action_save_as.setEnabled(has_project)
         self.action_export_image.setEnabled(has_image)
         self.action_clear_points.setEnabled(has_points)
+        
+        # Controla botões da toolbar superior
+        if hasattr(self, 'btn_save_toolbar'):
+            self.btn_save_toolbar.setEnabled(has_project)
+        if hasattr(self, 'btn_export_toolbar'):
+            self.btn_export_toolbar.setEnabled(has_image)
     
     def _update_points_info(self):
         """Atualiza informações dos pontos."""
@@ -950,7 +1061,7 @@ class MainWindow(QMainWindow):
             <p>• <strong>Abrir Projeto</strong> - Continue trabalhando em um projeto salvo (.mip)</p>
         """)
     
-    # Métodos utilitários
+    # Métodos utilitários (mantidos)
     def _show_error(self, message: str):
         """Mostra dialog de erro."""
         QMessageBox.critical(self, "Erro", message)
@@ -987,7 +1098,7 @@ class MainWindow(QMainWindow):
                 current = self.size_spinbox.value()
                 self.size_spinbox.setValue(max(5, current - 1))
         
-        # ✅ NOVOS ATALHOS para transformações
+        # Atalhos para transformações
         if self.state_manager.current_state == AppState.EDICAO:
             if event.key() == Qt.Key.Key_R:
                 self._rotate_90()
